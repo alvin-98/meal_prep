@@ -157,6 +157,42 @@ def recipe_tile(recipe, nutrition_df, idx):
     """
 
 
+def display_meal_schedule():
+    st.subheader("Weekly Meal Plan")
+    today = datetime.now().date()
+    week_dates = [today + timedelta(days=i) for i in range(7)]
+    
+    # Initialize meal plan in session state if not exists
+    if 'weekly_meal_plan' not in st.session_state:
+        st.session_state.weekly_meal_plan = {
+            date.strftime("%Y-%m-%d"): {
+                "Breakfast": [],
+                "Lunch": [],
+                "Dinner": []
+            } for date in week_dates
+        }
+    
+    # Display each day's meals
+    for date in week_dates:
+        date_str = date.strftime("%Y-%m-%d")
+        with st.expander(date.strftime("%A, %B %d")):
+            for meal_type in ["Breakfast", "Lunch", "Dinner"]:
+                st.subheader(meal_type)
+                
+                # Display current meals for this slot
+                meals = st.session_state.weekly_meal_plan[date_str][meal_type]
+                if meals:
+                    for i, meal in enumerate(meals):
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.write(f"• {meal['name']}")
+                        with col2:
+                            if st.button("🗑️", key=f"remove_{date_str}_{meal_type}_{i}"):
+                                meals.remove(meal)
+                else:
+                    st.write("No meals planned")
+
+
 def show_meal_planning():
     st.header("Meal Planning")
     
@@ -200,7 +236,21 @@ def show_meal_planning():
                             <div class="recipe-tile">
                                 {recipe_tile(recipe, nutrition_df, idx)}
                             
-                        """, unsafe_allow_html=True)                    
+                        """, unsafe_allow_html=True)     
+
+                        st.selectbox(
+                            "Meal Type",
+                            ["Breakfast", "Lunch", "Dinner"],
+                            key=f"meal_type_{idx}",
+                            on_change=lambda idx=idx: setattr(st.session_state, 'selected_meal_type', st.session_state[f"meal_type_{idx}"])
+                        )               
+
+                        st.date_input(
+                            "Date",
+                            value=datetime.now().date(),
+                            key=f"date_{idx}",
+                            on_change=lambda idx=idx: setattr(st.session_state, 'selected_date', st.session_state[f"date_{idx}"].strftime("%Y-%m-%d"))
+                        )
 
                         if st.button("👀 Details", key=f"view_{idx}", use_container_width=True):
                             st.session_state.selected_recipe = idx
@@ -212,8 +262,11 @@ def show_meal_planning():
                             }
 
                         if st.button("➕ Add", key=f"add_{idx}", use_container_width=True):
-                            st.session_state.meal_plan.append(recipe)
-                            st.success(f"Added {recipe['name']} to meal plan!")
+                            # st.session_state.meal_plan.append(recipe)
+                            meal_date = st.session_state.get('selected_date', datetime.now().date().strftime("%Y-%m-%d"))
+                            meal_type = st.session_state.get('selected_meal_type', "Breakfast")
+                            st.session_state.weekly_meal_plan[meal_date][meal_type].append(recipe)
+                            st.success(f"Added {recipe['name']} to {meal_type} on {meal_date}!")
 
                         st.markdown("</div>", unsafe_allow_html=True)
             
@@ -228,17 +281,7 @@ def show_meal_planning():
     today = datetime.now().date()
     week_dates = [today + timedelta(days=i) for i in range(7)]
     
-    # Create weekly schedule
-    schedule_data = []
-    for date in week_dates:
-        schedule_data.append({
-            "Date": date.strftime("%A, %B %d"),
-            "Breakfast": "Not planned",
-            "Lunch": "Not planned",
-            "Dinner": "Not planned"
-        })
-    
-    st.table(pd.DataFrame(schedule_data))
+    display_meal_schedule()
 
 
 def main():
