@@ -10,4 +10,4 @@ def initialize_session_state():
     if 'selected_recipe' not in st.session_state:
         st.session_state.selected_recipe = None
     if 'meal_plan' not in st.session_state:
-        st.session_state.meal_plan = []
+        st.session_state.meal_plan = {}

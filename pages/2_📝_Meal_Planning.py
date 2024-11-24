@@ -29,8 +29,10 @@ def api_call(search_query, nutrition_goals, max_ready_time, sort):
 
 
 def nutrition_goal_setting_widget():
+
+    col1, col2 = st.columns(2)
     # Calories range
-    calorie_range_goal = st.slider(
+    calorie_range_goal = col1.slider(
         "Select a calorie range (kcal):",
         min_value=MIN_CALORIES,
         max_value=MAX_CALORIES,
@@ -41,7 +43,7 @@ def nutrition_goal_setting_widget():
     )
         
     # Carbs range
-    carbs_range_goal = st.slider(
+    carbs_range_goal = col1.slider(
         "Select a carbs range (g):",
         min_value=MIN_CARBS,
         max_value=MAX_CARBS,
@@ -52,7 +54,7 @@ def nutrition_goal_setting_widget():
     )
 
     # Protein range
-    protein_range_goal = st.slider(
+    protein_range_goal = col1.slider(
         "Select a protein range (g):",
         min_value=MIN_PROTEIN,
         max_value=MAX_PROTEIN,
@@ -63,7 +65,7 @@ def nutrition_goal_setting_widget():
     )
 
     # Fat range    
-    fat_range_goal = st.slider(
+    fat_range_goal = col2.slider(
         "Select a fat range (g):",
         min_value=MIN_FAT,
         max_value=MAX_FAT,
@@ -74,7 +76,7 @@ def nutrition_goal_setting_widget():
     )
 
     # Fiber range
-    fiber_range_goal = st.slider(
+    fiber_range_goal = col2.slider(
         "Select a fiber range (g):",
         min_value=MIN_FIBER,
         max_value=MAX_FIBER,
@@ -85,7 +87,7 @@ def nutrition_goal_setting_widget():
     )
 
     # Sugar range
-    sugar_range_goal = st.slider(
+    sugar_range_goal = col2.slider(
         "Select a sugar range (g):",
         min_value=MIN_SUGAR,
         max_value=MAX_SUGAR,
@@ -96,11 +98,11 @@ def nutrition_goal_setting_widget():
     )
 
     nutrition_goals = {
-            'calories': calorie_range_goal,
-            'carbs': carbs_range_goal,
-            'protein': protein_range_goal,
-            'fat': fat_range_goal,
-            'fiber': fiber_range_goal,
+        'calories': calorie_range_goal,
+        'carbs': carbs_range_goal,
+        'protein': protein_range_goal,
+        'fat': fat_range_goal,
+        'fiber': fiber_range_goal,
         'sugar': sugar_range_goal
     }
 
@@ -158,29 +160,28 @@ def recipe_tile(recipe, nutrition_df, idx):
 
 
 def display_meal_schedule():
-    st.subheader("Weekly Meal Plan")
-    today = datetime.now().date()
-    week_dates = [today + timedelta(days=i) for i in range(7)]
-    
-    # Initialize meal plan in session state if not exists
-    if 'weekly_meal_plan' not in st.session_state:
-        st.session_state.weekly_meal_plan = {
-            date.strftime("%Y-%m-%d"): {
-                "Breakfast": [],
-                "Lunch": [],
-                "Dinner": []
-            } for date in week_dates
-        }
+    st.subheader("Meal Plan")
+    start_date = st.session_state.get('date_input', datetime.now().date())
+
+    period_days = {
+        "1 day": 1,
+        "3 days": 3,
+        "5 days": 5,
+        "Weekly (7 days)": 7
+    }
+
+    num_days = period_days[st.session_state.get('meal_plan_period', "Weekly (7 days)")]
+    meal_prep_period_dates = [start_date + timedelta(days=i) for i in range(num_days)]
     
     # Display each day's meals
-    for date in week_dates:
+    for date in meal_prep_period_dates:
         date_str = date.strftime("%Y-%m-%d")
         with st.expander(date.strftime("%A, %B %d")):
             for meal_type in ["Breakfast", "Lunch", "Dinner"]:
                 st.subheader(meal_type)
                 
                 # Display current meals for this slot
-                meals = st.session_state.weekly_meal_plan[date_str][meal_type]
+                meals = st.session_state.meal_plan[date_str][meal_type]
                 if meals:
                     for i, meal in enumerate(meals):
                         col1, col2 = st.columns([4, 1])
@@ -188,25 +189,71 @@ def display_meal_schedule():
                             st.write(f"• {meal['name']}")
                         with col2:
                             if st.button("🗑️", key=f"remove_{date_str}_{meal_type}_{i}"):
-                                meals.remove(meal)
+                                try:
+                                    st.session_state.meal_plan[date_str][meal_type].remove(meal)
+                                    st.rerun()
+                                except ValueError:
+                                    pass
                 else:
                     st.write("No meals planned")
 
 
 def show_meal_planning():
     st.header("Meal Planning")
-    
+
+    mean_plan_time_period = st.selectbox(
+        "I want to Meal Prep for", 
+        ["1 day", "3 days", "5 days", "Weekly (7 days)"],
+        key="meal_plan_period"
+    )
+
+    st.date_input(
+        "Starting from",
+        value=datetime.now().date(),
+        key="date_input",
+        on_change=lambda: setattr(st.session_state, 'selected_date', st.session_state['date_input'].strftime("%Y-%m-%d"))
+    )
+
+    period_days = {
+        "1 day": 1,
+        "3 days": 3,
+        "5 days": 5,
+        "Weekly (7 days)": 7
+    }
+    start_date = st.session_state.get('date_input', datetime.now().date())
+    num_days = period_days[st.session_state.get('meal_plan_period', "Weekly (7 days)")]
+    meal_prep_period_dates = [start_date + timedelta(days=i) for i in range(num_days)]
+
+    # Ensure all dates exist in meal plan
+    for date in meal_prep_period_dates:
+        date_str = date.strftime("%Y-%m-%d")
+        if date_str not in st.session_state.meal_plan:
+            st.session_state.meal_plan[date_str] = {
+                "Breakfast": [],
+                "Lunch": [],
+                "Dinner": []
+            }
+
+
     # Add CSS for recipe tiles
     st.markdown(RECIPE_TILE_STYLE, unsafe_allow_html=True)
+
+    st.write("These are my nutrition goals for a day")
+    servings_split = st.selectbox(
+        "Split across servings", 
+        options=range(2, 6),
+        key="servings_split",
+        help="Split daily nutrition goals across multiple servings",
+    )
+
+    nutrition_goals = nutrition_goal_setting_widget()
     
     with st.form("search_recipes"):
-        search_query = st.text_input("Search for a recipe")
         
-        nutrition_goals = nutrition_goal_setting_widget()
+        search_query = st.text_input("I want to make recipes similar to")
 
-        # Max ready time
         max_ready_time = st.slider(
-            "Select maximum preparation time (minutes):",
+            "That I can prepare within time period of x minutes",
             max_value=MAX_TIME,
             value=30,  # Default value
             step=5,  # Increment step
@@ -214,7 +261,7 @@ def show_meal_planning():
             key="max_ready_time"
         )
 
-        sort = st.selectbox("Sort by", ["max-used-ingredients", "min-missing-ingredients", "time"])
+        sort = st.selectbox("Sort recipes by", ["max-used-ingredients", "min-missing-ingredients", "time"])
 
         search_submitted = st.form_submit_button("Search Recipes")
         if search_submitted:
@@ -242,15 +289,10 @@ def show_meal_planning():
                             "Meal Type",
                             ["Breakfast", "Lunch", "Dinner"],
                             key=f"meal_type_{idx}",
-                            on_change=lambda idx=idx: setattr(st.session_state, 'selected_meal_type', st.session_state[f"meal_type_{idx}"])
+                            # on_change=lambda idx=idx: setattr(st.session_state, 'selected_meal_type', st.session_state[f"meal_type_{idx}"])
                         )               
 
-                        st.date_input(
-                            "Date",
-                            value=datetime.now().date(),
-                            key=f"date_{idx}",
-                            on_change=lambda idx=idx: setattr(st.session_state, 'selected_date', st.session_state[f"date_{idx}"].strftime("%Y-%m-%d"))
-                        )
+                        
 
                         if st.button("👀 Details", key=f"view_{idx}", use_container_width=True):
                             st.session_state.selected_recipe = idx
@@ -262,11 +304,14 @@ def show_meal_planning():
                             }
 
                         if st.button("➕ Add", key=f"add_{idx}", use_container_width=True):
-                            # st.session_state.meal_plan.append(recipe)
-                            meal_date = st.session_state.get('selected_date', datetime.now().date().strftime("%Y-%m-%d"))
-                            meal_type = st.session_state.get('selected_meal_type', "Breakfast")
-                            st.session_state.weekly_meal_plan[meal_date][meal_type].append(recipe)
-                            st.success(f"Added {recipe['name']} to {meal_type} on {meal_date}!")
+
+                            meal_type = st.session_state[f"meal_type_{idx}"]
+                            for i in range(num_days):
+                                current_date = (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
+                                if current_date not in st.session_state.meal_plan:
+                                    st.session_state.meal_plan[current_date] = {"Breakfast": [], "Lunch": [], "Dinner": []}
+                                st.session_state.meal_plan[current_date][meal_type].append(recipe)
+                            st.success(f"Added {recipe['name']} to {meal_type} for {num_days} days starting {start_date}!")
 
                         st.markdown("</div>", unsafe_allow_html=True)
             
