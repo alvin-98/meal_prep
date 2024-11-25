@@ -12,6 +12,7 @@ import os
 from services.spoonacular import SpoonacularAPI
 from models.ingredients import Ingredient
 
+
 def show_inventory_management():
     st.header("Inventory Management")
     
@@ -25,41 +26,29 @@ def show_inventory_management():
         if st.form_submit_button("Add Ingredient"):
             new_ingredient = Ingredient(
                 name=name,
-                quantity=quantity,
+                amount=quantity,
                 unit=unit,
                 expiry_date=datetime.combine(expiry_date, datetime.min.time())
             )
-            st.session_state.planner.add_ingredient(new_ingredient)
+            st.session_state.db.add_ingredient(new_ingredient)
             st.success(f"Added {name} to inventory!")
     
 
-    # Show expiry statistics
-    if st.session_state.planner.inventory:
-        expiry_data = [
-            {'name': ing.name, 'days': ing.days_until_expiry()}
-            for ing in st.session_state.planner.inventory
-        ]
-        fig = px.bar(
-            expiry_data,
-            x='name',
-            y='days',
-            title='Days Until Expiry',
-            color='days',
-            color_continuous_scale='RdYlGn'
-        )
-        st.plotly_chart(fig)
-
-    # Display current inventory
-    if st.session_state.planner.inventory:
-        inventory_data = [
+    # Load inventory once and reuse it
+    inventory = Ingredient.load_inventory(st.session_state.db)
+    if inventory:
+        # Create single data structure for both displays
+        data = [
             {
                 "Name": ing.name,
-                "Quantity": f"{ing.quantity} {ing.unit}",
+                "Quantity": f"{ing.amount} {ing.unit}",
                 "Days until expiry": ing.days_until_expiry()
             }
-            for ing in st.session_state.planner.inventory
+            for ing in inventory
         ]
-        st.table(pd.DataFrame(inventory_data))
+
+        # Display current inventory using the same data
+        st.table(pd.DataFrame(data))
 
 def main():
     show_inventory_management()

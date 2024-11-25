@@ -1,17 +1,18 @@
 import streamlit as st
 from services.spoonacular import SpoonacularAPI
-from models.planner import MealPrepPlanner  # Note: Changed from MealPlanner to MealPrepPlanner
 from datetime import datetime, timedelta
 import pandas as pd
 from utils.styles import RECIPE_TILE_STYLE
 from utils.defaults import MIN_CALORIES, MAX_CALORIES, MAX_TIME, MIN_CARBS, MAX_CARBS, MIN_PROTEIN, MAX_PROTEIN, MIN_FAT, MAX_FAT, MIN_FIBER, MAX_FIBER, MIN_SUGAR, MAX_SUGAR
 from utils.config import initialize_session_state
+from models.ingredients import Ingredient
+from models.meal_plan import MealPlan
 
 
 def api_call(search_query, nutrition_goals, max_ready_time, sort):
     try:
         api = SpoonacularAPI()
-        available_ingredients = st.session_state.planner.get_ingredient_names()
+        available_ingredients = Ingredient.get_ingredient_names(st.session_state.db)
         available_ingredients = ",".join(available_ingredients) if available_ingredients else ""
         
         recipes_df, ingredients_df, nutrition_df = api.search_recipes(
@@ -106,6 +107,18 @@ def nutrition_goal_setting_widget():
         'sugar': sugar_range_goal
     }
 
+    nutrition_goals_data = []
+    date_str = st.session_state.get('date_input', datetime.now().date()).strftime("%Y-%m-%d")
+    
+    for nutrition_type, (min_val, max_val) in nutrition_goals.items():
+        nutrition_goals_data.append({
+            'date': date_str,
+            'nutrition_type': nutrition_type,
+            'minimum_requirement': min_val,
+            'maximum_limit': max_val
+        })
+    
+    nutrition_goals_df = pd.DataFrame(nutrition_goals_data)
     return nutrition_goals
 
 
@@ -140,7 +153,7 @@ def recipe_deep_dive():
             del st.session_state.current_recipe
 
 
-def recipe_tile(recipe, nutrition_df, idx):
+def recipe_tile(recipe, nutrition_data):
     return f"""
     <img src="{recipe['image_url']}" class="recipe-image" onerror="this.src='https://via.placeholder.com/300x200?text=No+Image'">
     <div class="recipe-title">{recipe['name']}</div>
@@ -151,16 +164,17 @@ def recipe_tile(recipe, nutrition_df, idx):
     </div>
     <div class="recipe-nutrition">
         Nutrition per serving:<br>
-        🔥 {nutrition_df.loc[idx, 'calories']:.0f} cal<br>
-        🥩 {nutrition_df.loc[idx, 'protein']:.1f}g protein<br>
-        🍚 {nutrition_df.loc[idx, 'carbs']:.1f}g carbs<br>
-        🥑 {nutrition_df.loc[idx, 'fat']:.1f}g fat
+        🔥 {nutrition_data['calories']:.0f} cal<br>
+        🥩 {nutrition_data['protein']:.1f}g protein<br>
+        🍚 {nutrition_data['carbs']:.1f}g carbs<br>
+        🥑 {nutrition_data['fat']:.1f}g fat
     </div>
     """
 
 
 def display_meal_schedule():
     st.subheader("Meal Plan")
+    
     start_date = st.session_state.get('date_input', datetime.now().date())
 
     period_days = {
@@ -177,23 +191,24 @@ def display_meal_schedule():
     for date in meal_prep_period_dates:
         date_str = date.strftime("%Y-%m-%d")
         with st.expander(date.strftime("%A, %B %d")):
-            for meal_type in ["Breakfast", "Lunch", "Dinner"]:
-                st.subheader(meal_type)
+            for meal_type in ["breakfast", "lunch", "dinner"]:
+                st.subheader(meal_type.capitalize())
                 
                 # Display current meals for this slot
-                meals = st.session_state.meal_plan[date_str][meal_type]
-                if meals:
-                    for i, meal in enumerate(meals):
+                daily_meals = st.session_state.meal_plan[
+                    (st.session_state.meal_plan['date'] == date_str) & 
+                    (st.session_state.meal_plan['meal_type'] == meal_type)
+                ]
+                if not daily_meals.empty:
+                    for i, meal in daily_meals.iterrows():
                         col1, col2 = st.columns([4, 1])
                         with col1:
-                            st.write(f"• {meal['name']}")
+                            st.write(f"• {meal['recipe_name']}")
                         with col2:
                             if st.button("🗑️", key=f"remove_{date_str}_{meal_type}_{i}"):
-                                try:
-                                    st.session_state.meal_plan[date_str][meal_type].remove(meal)
-                                    st.rerun()
-                                except ValueError:
-                                    pass
+                                # Remove the meal from the DataFrame
+                                st.session_state.meal_plan = st.session_state.meal_plan.drop(index=i)
+                                st.rerun()
                 else:
                     st.write("No meals planned")
 
@@ -220,19 +235,10 @@ def show_meal_planning():
         "5 days": 5,
         "Weekly (7 days)": 7
     }
+
     start_date = st.session_state.get('date_input', datetime.now().date())
     num_days = period_days[st.session_state.get('meal_plan_period', "Weekly (7 days)")]
     meal_prep_period_dates = [start_date + timedelta(days=i) for i in range(num_days)]
-
-    # Ensure all dates exist in meal plan
-    for date in meal_prep_period_dates:
-        date_str = date.strftime("%Y-%m-%d")
-        if date_str not in st.session_state.meal_plan:
-            st.session_state.meal_plan[date_str] = {
-                "Breakfast": [],
-                "Lunch": [],
-                "Dinner": []
-            }
 
 
     # Add CSS for recipe tiles
@@ -245,6 +251,7 @@ def show_meal_planning():
         key="servings_split",
         help="Split daily nutrition goals across multiple servings",
     )
+    #TODO: Incorporate servings split into nutrition goals
 
     nutrition_goals = nutrition_goal_setting_widget()
     
@@ -276,45 +283,58 @@ def show_meal_planning():
         if not recipes_df.empty:
             # Display recipes in a grid
             cols = st.columns(3)
-            for idx, recipe in recipes_df.iterrows():
+            
+            # Iterate through DataFrame
+            for idx, row in enumerate(recipes_df.itertuples()):
                 with cols[idx % 3]:
                     with st.container():
+                        # Get nutrition data using loc once
+                        nutrition_data = nutrition_df.loc[row.Index]
+                        recipe_ingredients = ingredients_df[ingredients_df['recipe_id'] == row.Index]
+                        
                         st.markdown(f"""
                             <div class="recipe-tile">
-                                {recipe_tile(recipe, nutrition_df, idx)}
-                            
-                        """, unsafe_allow_html=True)     
-
+                                {recipe_tile(row._asdict(), nutrition_data)}                            
+                        """, unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
                         st.selectbox(
                             "Meal Type",
-                            ["Breakfast", "Lunch", "Dinner"],
-                            key=f"meal_type_{idx}",
-                            # on_change=lambda idx=idx: setattr(st.session_state, 'selected_meal_type', st.session_state[f"meal_type_{idx}"])
-                        )               
+                            ["breakfast", "lunch", "dinner"],
+                            key=f"meal_type_{row.Index}",
+                            format_func=lambda x: x.capitalize()
+                        )
 
-                        
-
-                        if st.button("👀 Details", key=f"view_{idx}", use_container_width=True):
-                            st.session_state.selected_recipe = idx
-                            # Store the current recipe data
+                        if st.button("👀 Details", key=f"view_{row.Index}", use_container_width=True):
+                            st.session_state.selected_recipe = row.Index                            
                             st.session_state.current_recipe = {
-                                'recipe': recipes_df.loc[idx],
-                                'ingredients': ingredients_df[ingredients_df['recipe_id'] == idx],
-                                'nutrition': nutrition_df.loc[idx] if idx in nutrition_df.index else None
+                                'recipe': row._asdict(),
+                                'ingredients': recipe_ingredients,
+                                'nutrition': nutrition_data
                             }
 
-                        if st.button("➕ Add", key=f"add_{idx}", use_container_width=True):
+                        if st.button("➕ Add", key=f"add_{row.Index}", use_container_width=True):
+                            meal_type = st.session_state[f"meal_type_{row.Index}"].lower()
+                            
+                            # Create dates DataFrame for more efficient operations
+                            dates = pd.date_range(start=start_date, periods=num_days)
+                            for date in dates:
+                                date_str = date.strftime("%Y-%m-%d")
+                                # Create a new row for the DataFrame
+                                new_row = {
+                                    'date': date_str,
+                                    'num_days': num_days,
+                                    'meal_type': meal_type,
+                                    'recipe_id': row.Index,
+                                    'recipe_name': row.name
+                                }
+                                # Append the new row to the DataFrame
+                                st.session_state.meal_plan = pd.concat([
+                                    st.session_state.meal_plan,
+                                    pd.DataFrame([new_row])
+                                ], ignore_index=True)
+                            
+                            st.success(f"Added {row.name} to {meal_type} for {num_days} days starting {start_date}!")
 
-                            meal_type = st.session_state[f"meal_type_{idx}"]
-                            for i in range(num_days):
-                                current_date = (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
-                                if current_date not in st.session_state.meal_plan:
-                                    st.session_state.meal_plan[current_date] = {"Breakfast": [], "Lunch": [], "Dinner": []}
-                                st.session_state.meal_plan[current_date][meal_type].append(recipe)
-                            st.success(f"Added {recipe['name']} to {meal_type} for {num_days} days starting {start_date}!")
-
-                        st.markdown("</div>", unsafe_allow_html=True)
-            
             # Show recipe details if selected
             if st.session_state.selected_recipe is not None and hasattr(st.session_state, 'current_recipe'):
                 recipe_deep_dive()
@@ -327,6 +347,24 @@ def show_meal_planning():
     week_dates = [today + timedelta(days=i) for i in range(7)]
     
     display_meal_schedule()
+
+
+    if st.button("💾 Save Meal Plan", type="primary", use_container_width=True):
+        try:
+            # Filter DataFrames based on recipe_ids in meal_plan
+            recipe_ids = st.session_state.meal_plan['recipe_id'].unique()
+            recipes_df, ingredients_df, nutrition_df = st.session_state.search_results
+            
+            st.session_state.recipes = recipes_df[recipes_df.index.isin(recipe_ids)]
+            st.session_state.ingredients = ingredients_df[ingredients_df['recipe_id'].isin(recipe_ids)]
+            st.session_state.nutrition = nutrition_df[nutrition_df.index.isin(recipe_ids)]
+            
+            # Create and save meal plan
+            meal_plan = MealPlan.from_dataframe(st.session_state.meal_plan)
+            meal_plan.add_meal_plan(st.session_state.db, st.session_state.recipes, st.session_state.nutrition, st.session_state.ingredients)
+            st.success("Meal plan saved successfully!")
+        except Exception as e:
+            st.error(f"Error saving meal plan: {str(e)}")
 
 
 def main():

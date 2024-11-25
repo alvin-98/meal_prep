@@ -72,5 +72,43 @@ def create_bmi_gauge(bmi_value):
 # Display BMI gauge
 st.plotly_chart(create_bmi_gauge(bmi), use_container_width=True)
 
+# Previous Meal Plans Section
+st.subheader("📋 Previous Meal Plans")
 
+# Create tabs for different views
+list_tab, calendar_tab = st.tabs(["List View", "Calendar View"])
+
+with list_tab:
+    # You'll need to implement a function to fetch meal plans from your database
+    # This is a placeholder structure
+    if 'meal_plans' not in st.session_state:
+        st.session_state.meal_plans = []  # Replace with actual database fetch
+        
+    if not st.session_state.meal_plans:
+        st.info("No meal plans found. Create your first meal plan!")
+    else:
+        for plan in st.session_state.meal_plans:
+            with st.expander(f"Meal Plan - {plan.get('date', 'Unknown Date')}"):
+                # Display meal plan details
+                st.write(f"**Calories:** {plan.get('calories', 'N/A')} kcal")
+                st.write(f"**Protein:** {plan.get('protein', 'N/A')} g")
+                # Add more nutritional information as needed
+                
+                # Add buttons for actions
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("View Details", key=f"view_{plan.get('id')}"):
+                        # Implement view functionality
+                        pass
+                with col2:
+                    if st.button("Edit", key=f"edit_{plan.get('id')}"):
+                        # Implement edit functionality
+                        pass
+                with col3:
+                    if st.button("Delete", key=f"delete_{plan.get('id')}"):
+                        # Implement delete functionality
+                        pass
+
+with calendar_tab:
+    st.info("Calendar view coming soon!")
 
